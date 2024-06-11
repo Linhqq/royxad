@@ -1,0 +1,101 @@
+const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
+const fetch = require('node-fetch');
+const fs = require('fs');
+const path = require('path');
+
+const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] });
+
+const TOKEN = 'MTE5ODU0NjQzODY3MDUxNjI1NQ.Gpqlnf.MiiMlUbUvS7nk1XQ6iuJ1kSAeqcCY-7fZHlFIg';
+const API_URL = "http://45.90.13.151:6041/?url={link}";
+
+const SUPPORTED_LINKS = [
+    "gateway.platoboost.com/a/8?id=",
+    "gateway.platoboost.com/a/2569?id=",
+    "https://linkvertise.com/",
+    "https://flux.li/android/external/start.php?HWID=",
+    "https://pandadevelopment.net/getkey?service=vegax&hwid="
+];
+
+const IMAGE_URL = "https://cdn.discordapp.com/attachments/1203319905773158411/1244418674333450310/95007d2c552746ee143538b534827d44.jpg?ex=6668d134&is=66677fb4&hm=f611bb75d69b18b870146626035e3f097f315625f52bef25cac95b70270723f5&";
+
+const CHANNEL_ID_FILE = path.resolve(__dirname, 'channelId.json');
+let CHANNEL_ID = null;
+
+if (fs.existsSync(CHANNEL_ID_FILE)) {
+    const data = fs.readFileSync(CHANNEL_ID_FILE, 'utf-8');
+    const json = JSON.parse(data);
+    CHANNEL_ID = json.channelId;
+}
+
+client.once('ready', () => {
+    console.log(`Logged in as ${client.user.tag}!`);
+});
+
+client.on('messageCreate', async message => {
+    if (message.author.bot) return;
+
+    if (message.content.startsWith('!set-channel')) {
+        const newChannelId = message.channel.id;
+        const json = JSON.stringify({ channelId: newChannelId }, null, 2);
+        fs.writeFileSync(CHANNEL_ID_FILE, json, 'utf-8');
+        CHANNEL_ID = newChannelId;
+        await message.channel.send(`Channel has been set for auto API calls: ${newChannelId}`);
+    }
+
+    if (message.channel.id === CHANNEL_ID) {
+        const link = message.content.trim();
+        if (link.startsWith("https://")) {
+            if (SUPPORTED_LINKS.some(supportedLink => link.includes(supportedLink))) {
+                const encodedLink = encodeURIComponent(link);
+                const apiUrl = API_URL.replace('{link}', encodedLink);
+                try {
+                    const response = await fetch(apiUrl);
+                    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                    const result = await response.json();
+
+                    // Kiểm tra xem API trả về từ linkvertise.com
+                    if (link.includes("https://linkvertise.com/")) {
+                        if (result.target && result.time) {
+                            const embed = new EmbedBuilder()
+                                .setTitle('API Result')
+                                .setImage(IMAGE_URL)
+                                .addFields(
+                                    { name: 'Target', value: `\`\`\`${JSON.stringify(result.target, null, 2)}\`\`\``, inline: true },
+                                    { name: 'Time', value: `\`\`\`${JSON.stringify(result.time, null, 2)}\`\`\``, inline: true },
+                                    { name: 'Original Link', value: `\`\`\`${link}\`\`\``, inline: false }
+                                )
+                                .setColor(0x00FF00);
+
+                            await message.channel.send({ embeds: [embed] });
+                        } else {
+                            await message.channel.send("Error: API response does not contain expected fields.");
+                        }
+                    } else {
+                        // Xử lý kết quả từ các trang khác
+                        if (result.key && result.time) {
+                            const embed = new EmbedBuilder()
+                                .setTitle('API Result')
+                                .setImage(IMAGE_URL)
+                                .addFields(
+                                    { name: 'Key', value: `\`\`\`${JSON.stringify(result.key, null, 2)}\`\`\``, inline: true },
+                                    { name: 'Time', value: `\`\`\`${JSON.stringify(result.time, null, 2)}\`\`\``, inline: true },
+                                    { name: 'Original Link', value: `\`\`\`${link}\`\`\``, inline: false }
+                                )
+                                .setColor(0x00FF00);
+
+                            await message.channel.send({ embeds: [embed] });
+                        } else {
+                            await message.channel.send("Error: API response does not contain expected fields.");
+                        }
+                    }
+                } catch (error) {
+                    await message.channel.send(`Error calling API: ${error.message}`);
+                }
+            } else {
+                await message.channel.send("Unsupported link");
+            }
+        }
+    }
+});
+
+client.login(TOKEN);
